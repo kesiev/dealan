@@ -1,0 +1,463 @@
+<html>
+	<head>
+		<link rel="apple-touch-icon" href="icon.png">
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+		<style>
+			BODY {
+				-webkit-font-smoothing: antialiased;
+				-webkit-text-size-adjust: none;
+	        		text-size-adjust: none;
+				font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+				text-rendering: optimizeLegibility;
+				padding: 0;
+				margin: 0;
+				font-size:17px;
+				color:#000;
+				background-color: rgb(255, 255, 255);
+			}
+
+			:focus {
+			    outline: 0;
+			}
+
+			#header {
+				position: fixed;
+				left:0;
+				right:0;
+				top:0;
+				height:44px;
+				line-height: 44px;
+				text-align: center;
+				background-color: rgba(248, 248, 248, 0.901961);
+				border-bottom: 1px solid rgb(200, 199, 204);
+			}
+
+			.topcommand {
+				position: absolute;
+				left:0px;
+				top:0px;
+				height:44px;
+				line-height: 44px;
+				color:rgb(21, 125, 251);
+				padding:0 9px;
+			}
+
+			#commands {
+				position: absolute;
+				left:10;
+				right:10;
+				top:10;
+				bottom:10;
+				border:1px solid rgb(200, 199, 204);
+				font-size: 20px;
+				padding:20px;
+				background-color: rgba(248, 248, 248, 0.901961);
+				text-align: center;
+			}
+
+			.commandsguide {
+				padding-top:10px;
+				font-size:10px;
+			}
+
+			.spacer {
+				height:44px;
+			}
+
+			.row {
+				padding:10px;
+				margin:0 15px;
+				height:30px;
+				line-height: 30px;
+				border-bottom: 1px solid #ccc;
+				white-space: nowrap;
+				text-overflow:ellipsis;
+			}
+
+			.rowtext {
+				color:rgb(111, 111, 116);
+				padding:10px;
+				margin:0 15px;
+				border-bottom: 1px solid #ccc;
+			}
+		</style>
+	</head>
+	<body onload="onLoaded()">
+		<span id="gui"></span>
+		<audio preload id='sounds' style="position:absolute;top:-10000"><source src="sounds.mp3" type="audio/mp3"></audio><br>
+		<script>
+
+			// STATE MACHINE
+
+			var Machine={
+				flags:{
+					machineid:"",
+					timeout:null,
+					step:null,
+					done:null,
+					next:false
+				},
+				modes:{
+					whip:{
+						label:"Whip",
+						sequence:[
+							{action:"command",text:"Shake to whip"},
+							{action:"wait",what:"shake"},
+							{action:"audio",play:"whip"}
+						]
+					},
+					gun:{
+						label:"Gun",
+						sequence:[
+							{action:"command",text:"Tap to fire"},
+							{action:"wait",what:"touch"},
+							{action:"audio",play:"shot"}
+						]
+					},
+					shotgun:{
+						label:"Shotgun",
+						sequence:[
+							{action:"command",text:"Shake to reload the shotgun"},
+							{action:"wait",what:"shake"},
+							{action:"audio",play:"shotgunload"},
+							{action:"command",text:"Tap to fire"},
+							{action:"wait",what:"touch"},
+							{action:"audio",play:"shot"}
+						]
+					},
+					shuriken:{
+						label:"Shuriken",
+						sequence:[
+							{action:"command",text:"Swipe to throw a shuriken"},
+							{action:"wait",what:"swipe"},
+							{action:"audio",play:"shuriken"}
+						]
+					},
+					knife:{
+						label:"Knife",
+						sequence:[
+							{action:"command",text:"Shake to throw a knife"},
+							{action:"wait",what:"shake"},
+							{action:"audio",play:"shuriken"}
+						]
+					},
+					motor:{
+						label:"Motorcycle",
+						sequence:[
+							{action:"command",text:"Pick mobile like a throttle with display upside"},
+							{action:"wait",what:"position",yNear:0,zGreaterThan:9},
+							{action:"command",text:"Twist to accellerate"},
+							{action:"wait",what:"position",yNear:0,zLessThan:8},
+							{action:"audio",play:"motorcycle"}
+						]
+					},
+					drill:{
+						label:"Drill",
+						sequence:[
+							{action:"command",text:"Touch to start drilling"},
+							{action:"wait",what:"touchstart"},
+							{action:"command",text:"Keep touching the screen to drill"},
+							{action:"audio",play:"drillLoop"},
+							{action:"wait",what:"touchend"},
+							{action:"audio",play:"drillLoopEnd"}
+						]
+					}
+				},
+				cycle:function(){
+					if (Machine.flags.next) {
+						Machine.flags.step=(Machine.flags.step+1)%Machine.modes[Machine.flags.machineid].sequence.length;
+						Machine.flags.done=false;
+						Machine.flags.next=false;
+					}
+					if (!Machine.flags.done) {
+						var cur=Machine.modes[Machine.flags.machineid].sequence[Machine.flags.step];
+						switch (cur.action){
+							case "command":{
+								document.getElementById("commands").innerHTML=cur.text+"<div class='commandsguide'>Swipe with 2+ fingers to go back to the menu</div>";
+								Machine.flags.next=true;
+								break;
+							}
+							case "wait":{
+								switch (cur.what) {
+									case "shake": { if (Sensors.status.shake) Machine.flags.next=true; break; }
+									case "touch": { if (Sensors.status.touchstart) Machine.flags.next=true; break; }
+									case "touchstart": { if (Sensors.status.touchstart) Machine.flags.next=true; break; }
+									case "touchend": { if (Sensors.status.touchend) Machine.flags.next=true; break; }
+									case "audio": { if (Audio.status.played) Machine.flags.next=true; break; }
+									case "swipe": { if (Sensors.status.swiped) Machine.flags.next=true; break}
+									case "position": {
+										if (Sensors.status.position) Machine.flags.next=true; else
+										if (!Sensors.isWaitingPosition()) Sensors.setPositionWait(cur);
+										break
+									}
+								}
+								break;
+							}
+							case "audio":{
+								if (cur.play) {
+									Machine.flags.done=true;
+									Audio.play(cur.play);
+			  						setTimeout(function(){ Machine.flags.next=true},100);
+								} else if (cur.stop) {
+									Audio.stop();
+									Machine.flags.next=true;
+								}
+								break;
+							}
+						}
+					}
+					Sensors.reset();
+					Machine.flags.timeout=setTimeout(Machine.cycle,10);
+				},
+				start:function(id){
+					if (this.flags.timeout) clearTimeout(this.flags.timeout);
+					this.flags.machineid=id;
+					this.flags.step=-1;
+					this.flags.done=false;
+					this.flags.next=true;
+					Sensors.reset();
+					if (this.modes[id]) this.cycle();
+				}
+			}
+
+			// GUI
+
+			var GUI={
+				about:{
+					name:"Dealan",
+					text:"Dealan is an advanced HTML5 opensource gesture-based sound board made to break free. Please, lock your mobile orientation to portrait for better results.",
+					version:"0.1b",
+					authors:[
+						{ name:"KesieV", url:"http://www.kesiev.com" }
+					]
+				},
+				showCommands:function(){
+					var out="<div id='commands'></div>";
+					document.getElementById("gui").innerHTML=out;
+				},
+				showAbout:function(){
+					var out="<div id='header'><div class='topcommand' onclick='GUI.showSelector()'>Back</div>About "+this.about.name+" "+this.about.version+"</div><div class='spacer'></div>";
+					out+="<div class='rowtext'>"+this.about.text+"<br><br>"+this.about.name+" is by:</div>";
+					for (var i=0;i<this.about.authors.length;i++)
+						out+="<div class='row' onclick='window.open(\""+this.about.authors[i].url+"\")'>"+this.about.authors[i].name+" - "+this.about.authors[i].url+"</div>";
+					document.getElementById("gui").innerHTML=out;
+				},
+				showSelector:function(){
+					var out="<div id='header'><div class='topcommand' onclick='GUI.showAbout()'>About</div>"+this.about.name+"</div><div class='spacer'></div>";
+					for (var i in Machine.modes) out+="<div class='row' onclick='GUI.selectMachine(\""+i+"\")'>"+Machine.modes[i].label+"</div>";
+					document.getElementById("gui").innerHTML=out;
+				},
+				selectMachine:function(id){
+					GUI.showCommands();
+					Sensors.setQuitCallback(this.abortMachine);
+					Machine.start(id);
+				},
+				abortMachine:function(){
+					Sensors.setQuitCallback(null);
+					Machine.start("");
+					Audio.stop();
+					Sensors.reset();
+					GUI.showSelector();
+				},
+				initialize:function(){
+					document.title=this.about.name;
+					var out="<div id='header'>"+this.about.name+"</div><div class='spacer'></div>";
+					out+="<div class='rowtext'>"+this.about.text+"</div>";
+					out+="<div id='waiter' style='display:none' class='row'>Please, wait...</div>";
+					out+="<div id='initializer' class='row' onclick='Audio.play(\"start\")'>Tap here to start!</div>";
+					document.getElementById("gui").innerHTML=out;
+				}
+			}
+
+			// AUDIO PLAYER
+
+			var Audio={
+				status:{
+					played:false
+				},
+				audio:{
+					start:{
+						start:0,
+						length:0.5
+					},
+					whip:{
+						start:1,
+						length:1
+					},
+					shotgunload:{
+						start:2.8,
+						length:1
+					},
+					shot:{
+						start:4.5,
+						length:1
+					},
+					shuriken:{
+						start:7.1,
+						length:1.3
+					},
+					motorcycle:{
+						start:10.1,
+						length:1.8
+					},
+					drillLoop:{
+						start:13,
+						length:3.8,
+						loopTo:14
+					},
+					drillLoopEnd:{
+						start:17,
+						length:0.4
+					}
+				},
+				flags:{
+					initializing:true,
+					currentaudio:null
+				},
+				stop:function(){
+					document.getElementById("sounds").currentTime=0;
+		  			document.getElementById("sounds").pause();
+		  			this.status.played=true;
+				},
+				play:function(id){
+					this.flags.currentaudio=this.audio[id];
+					this.flags.currentaudio.end=this.flags.currentaudio.start+this.flags.currentaudio.length;
+					this.status.played=false;
+					if (this.flags.initializing) {
+						this.flags.cbstart();
+						this.flags.cbstart=null;
+					} else
+						document.getElementById("sounds").currentTime=this.flags.currentaudio.start;
+		  			document.getElementById("sounds").play();
+				},
+				initialize:function(cbstart,cbend){
+					this.flags.cbstart=cbstart;
+					document.getElementById("sounds").addEventListener("timeupdate",function(e){
+						if (Audio.flags.currentaudio&&(this.currentTime>=Audio.flags.currentaudio.end)) {
+							if (Audio.flags.currentaudio.loopTo!=undefined) {
+								document.getElementById("sounds").currentTime=Audio.flags.currentaudio.loopTo;
+							} else {
+								Audio.flags.currentaudio=null;
+								Audio.stop();
+					  			if (Audio.flags.initializing) {
+					  				cbend();
+					  				Audio.flags.initializing=false;
+					  			}						
+							}
+						}
+					});
+				}
+			}
+
+			// SENSORS
+
+			var Sensors={
+				status:{},
+				flags:{
+					gesturewait:false,
+					positionwait:null,
+					oldposition:null,
+					quitCb:false
+				},
+				reset:function(){
+					this.status={
+						shake:false,
+						touchstart:false,
+						touchend:false,
+						swiped:false,
+						position:false
+					}
+				},
+				setQuitCallback:function(value){
+					this.flags.quitCb=value;
+				},
+				isWaitingPosition:function(){
+					return this.flags.positionwait?true:false
+				},
+				setPositionWait:function(wait){
+					this.flags.positionwait=wait;
+				},
+				initialize:function(){
+					this.reset();
+					document.body.ontouchstart=function(e){
+						if (e.touches) {
+							Sensors.status.touchstart=true;
+							Sensors.flags.swipe={swiped:false,x:e.touches[0].clientX,y:e.touches[0].clientY}
+						}
+						if (Sensors.flags.quitCb) e.preventDefault();
+					}
+
+					document.body.ontouchend=function(e){
+						Sensors.status.touchend=true;
+					}
+
+					document.body.ontouchmove=function(e){
+						if (e.touches) {
+							if (Sensors.flags.swipe&&!Sensors.flags.swipe.swiped) {
+								if ((Math.abs(Sensors.flags.swipe.x-e.touches[0].clientX)>8)||(Math.abs(Sensors.flags.swipe.y-e.touches[0].clientY)>8)) {
+									if (Sensors.flags.quitCb&&(e.touches.length>=2)) {
+										Sensors.flags.quitCb();
+									} else {
+										Sensors.status.swiped=true;
+										Sensors.flags.swipe.swiped=true;
+									}
+								}
+							}
+						}
+					}
+					window.ondevicemotion = function(e) {
+						var np={x:e.accelerationIncludingGravity.x,y:e.accelerationIncludingGravity.y,z:e.accelerationIncludingGravity.z};
+						var anp={x:Math.abs(np.x),y:Math.abs(np.y),z:Math.abs(np.z)}
+			  			if (Sensors.flags.oldposition&&!Sensors.flags.gesturewait) {
+			  				var d=Math.max(Math.abs(np.x-Sensors.flags.oldposition.x),Math.abs(np.y-Sensors.flags.oldposition.y),Math.abs(np.z-Sensors.flags.oldposition.z));
+			  				if (d>20) {
+			  					Sensors.status.shake=true;
+			  					Sensors.flags.gesturewait=true;
+			  					setTimeout(function(){Sensors.flags.gesturewait=false},1000);
+			  				}
+			  			}
+			  			if (Sensors.flags.positionwait!=null) {
+							//if (document.getElementById("commands")) document.getElementById("commands").innerHTML="x:"+np.x+"<br>y:"+np.y+"<br>z:"+np.z;
+		  					var ok=true,wait=Sensors.flags.positionwait;
+		  					if (wait.zLessThan!=undefined) if (anp.z>wait.zLessThan) ok=false;
+		  					if (wait.zGreaterThan!=undefined) if (anp.z<wait.zGreaterThan) ok=false;
+		  					if (wait.zNear!=undefined) if (Math.abs(anp.z-wait.zNear)>1) ok=false;
+
+		  					if (wait.xLessThan!=undefined) if (anp.x>wait.xLessThan) ok=false;
+		  					if (wait.xGreaterThan!=undefined) if (anp.x<wait.xGreaterThan) ok=false;
+		  					if (wait.xNear!=undefined) if (Math.abs(anp.x-wait.xNear)>1) ok=false;
+
+		  					if (wait.yLessThan!=undefined) if (anp.y>wait.yLessThan) ok=false;
+		  					if (wait.yGreaterThan!=undefined) if (anp.y<wait.yGreaterThan) ok=false;
+		  					if (wait.yNear!=undefined) if (Math.abs(anp.y-wait.yNear)>1) ok=false;
+
+		  					if (ok) {
+			  					Sensors.flags.positionwait=null;
+			  					Sensors.status.position=true;	  						
+		  					}
+		  				}
+			  			Sensors.flags.oldposition=np;
+					}
+				}
+			}
+
+			// INITIALIZATION
+
+			function onLoaded(){
+				GUI.initialize();
+				Sensors.initialize();
+				Audio.initialize(
+					function(){
+						document.getElementById("waiter").style.display="block";
+						document.getElementById("initializer").style.display="none";
+					},
+					function(){
+						GUI.showSelector();
+					}
+				);
+			}
+	
+		</script>
+	</body>
+</html>

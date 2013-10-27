@@ -1,0 +1,2 @@
+#!/bin/bash
+ffmpeg -i "concat:silence.mp3|WhipCrack.mp3|silence.mp3|ShotGun-Cocking.mp3|silence.mp3|shot.mp3|silence.mp3|shuriken.mp3|silence.mp3|motor.mp3|silence.mp3|drill.mp3|silence.mp3" ../../sounds.mp3
